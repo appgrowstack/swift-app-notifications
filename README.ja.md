@@ -1,108 +1,55 @@
-# RemoteNotifications
+# swift-app-notifications
 
-リモート通知の端末側 —— 許可、APNsのデバイストークン、通知を押されたとき —— を扱う。サーバーはアプリが受け持つ。
+iOSとmacOSのリモート通知の端末側（許可・APNsのデバイストークン・タップ）を扱う。サーバーとのやり取りはアプリが受け持つ。
 
-![Swift](https://img.shields.io/badge/Swift-6.0-orange.svg)
-![Platforms](https://img.shields.io/badge/Platforms-iOS%2017.0%2B%20%7C%20macOS%2014.0%2B-blue.svg)
-![SPM](https://img.shields.io/badge/SPM-compatible-green.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+[English](README.md) | 日本語
 
-[English](./README.md) | 日本語
+## 機能
 
-> 開発は非公開のモノリポでしていて、ここへは片方向にコピーするだけです。Issueは受けます。PRは受けません。
+- 通知の許可を読む・求める（provisionalも選べる）
+- デバイストークンを取り、APNsの環境・タイムゾーン・言語・アプリのバージョン・許可の状態と一緒に渡す
+- 通知を許可していない端末も、最後に持っていたトークンと一緒に知らせる。サーバーは届かない端末を数えられる
+- トークンをどのアカウントで登録したかを覚える。別のアカウントにサインインしたら同じトークンを送り直してサーバーに移させ、サインアウトしたらサーバーに外させる
+- 前回サーバーが受け付けた登録から何も変わっていなければ、次の起動の後でも送らない
+- 通知がタップされたら、payloadの`route`をアプリに渡し、`send_id`を知らせる
+- URLを持たない。登録の送り先と、開かれた通知の知らせ先は、アプリがクロージャで渡す
+- Swift 6のstrict concurrencyに対応する。判断の部分はフェイクを渡してMacの`swift test`で試せる
 
-## 概要
+### `send`が受け取る物
 
-このパッケージはURLを持たない。登録をどこへ送るか、開かれた通知をどこへ知らせるかは、アプリが関数で渡す。どのサーバーでも同じコードで使える。
+`send`は`DeviceRegistration`を受け取る。`Codable`で、`{"token","apnsEnv","tz","locale","appVersion","authorization"}`の形に書き出す。
 
-- 許可の状態を読む・頼む（provisionalも選べる）
-- 起動のたびにデバイストークンを取り、APNsの環境・タイムゾーン・言語・アプリの版・許可の状態と一緒に渡す
-- 通知を許可していない端末も知らせる。サーバーが届く人数と届かない人数を数えられる
-- トークンをどのアカウントで登録したかを覚える。別のアカウントにサインインしたら同じトークンを送り直してサーバーに持ち主を移させ、サインアウトしたらサーバーに外させる
-- 前回サーバーが受け付けた登録から何も変わっていなければ送らない
-- 通知を押されたら、payloadの`route`をアプリに渡し、`send_id`を開いたとして知らせる
-- アプリを開いているときの通知の出し方を引数で決められる
-- Swift 6の厳密な並行性検査を通る。判断の部分は偽物を渡してMacの`swift test`で試せる
-
-## 使い方
-
-### 端末を登録する
-
-```swift
-import RemoteNotifications
-
-let registration = NotificationRegistration(
-    send: { registration in try await api.registerDevice(registration) },  // 送り先と送り方はアプリが決める
-    unregister: { token in try await api.unregisterDevice(token: token) }
-)
-
-// 誰がサインインしているか分かったとき：起動のたび、サインインしたとき、アカウントを切り替えたとき
-await registration.signIn(account: user.id)
-
-// 起動したとき、前面に戻るたびに
-await registration.refresh()
-
-// サインアウトする前に
-await registration.signOut()
-
-// 許可を頼むとき
-try await registration.requestAuthorization()                 // 確認のダイアログを出す
-try await registration.requestAuthorization(provisional: true) // ダイアログを出さず、静かに届ける
-```
-
-`send`には`DeviceRegistration`が渡る。
-
-| プロパティ | 例 | |
+| プロパティ | 例 | 説明 |
 |---|---|---|
-| `token` | `"a1b2…"` | 小文字の16進。一度も受け取っていなければ`nil` |
-| `apnsEnvironment` | `.production` | `DEBUG`なら`.sandbox`、それ以外は`.production`。`environment:`で変えられる |
+| `token` | `"a1b2…"` | 小文字の16進数。一度ももらっていない端末は`nil` |
+| `apnsEnvironment` | `.production` | `DEBUG`では`.sandbox`、それ以外は`.production`。`environment:`で変えられる |
 | `timeZone` | `"Asia/Tokyo"` | IANAの識別子 |
 | `locale` | `"ja-JP"` | BCP 47。アプリを表示している言語 |
 | `appVersion` | `"2.4.0"` | `CFBundleShortVersionString` |
-| `authorization` | `.authorized` | `.denied`と`.notDetermined`も届く |
-
-`Codable`で、JSONの鍵は`{"token","apnsEnv","tz","locale","appVersion","authorization"}`。
-
-`refresh()`がすること：
-
-- 許可されていれば、システムにトークンを頼む。トークンがアプリデリゲート経由で届いたら登録を送る
-- 許可されていなければ、端末が最後に持っていたトークンを付けてすぐ送る。サーバーはそのトークンを届かない物として扱える
-- **同じアカウントで**`send`が最後に成功した登録と同じなら送らない。起動をまたいでも効く（既定は`UserDefaultsRegistrationStore`）。`send`が投げたら、次のrefreshで送り直す
-- 送信は重ならない。送っている間に起きた変化は、終わってから送る
+| `authorization` | `.authorized` | ほかに`.denied`・`.notDetermined`・`.provisional`・`.ephemeral` |
 
 ### アカウント
 
-APNsのトークンはアプリの入れ物に1つで、誰がサインインしているかでは変わらない。同じ端末で別の人がサインインしても、トークンは同じ。サーバーは、伝えられなければ持ち主が変わったことを知れない。
+APNsのトークンはアプリのインストールに付く。サインインしている人には付かない。
 
-| いつ | 呼ぶもの | サーバーに届くもの |
+| いつ | 呼ぶ物 | サーバーに届く物 |
 |---|---|---|
-| 誰がサインインしているか分かったとき（起動のたび・サインインしたとき・アカウントを切り替えたとき） | `signIn(account:)` | 前にトークンを登録したアカウントと違えば、登録をもう一度送る。サーバーはトークンをそのアカウントに移す（最後に登録したアカウントが持ち主） |
-| 匿名のアカウントをAppleやGoogleにリンクして、idが変わらない | 同じidで`signIn(account:)` | 何も届かない |
-| サインアウト | **セッションを終える前に**`signOut()` | `unregister(token)`。投げたら次のrefreshで外し直す。先に次の人がサインインすれば、その登録で持ち主が移るので外さなくてよくなる |
-| サーバーがアカウントと端末を消した | `forgetAccount()` | 何も届かない |
+| 誰がサインインしているか分かったとき（起動のたび・サインインの後・アカウントを切り替えた後） | `signIn(account:)` | 前回トークンを登録したアカウントと違えば、登録をもう一度 |
+| 匿名のアカウントを連携し、idが変わらないとき | 同じidで`signIn(account:)` | 何も届かない |
+| サインアウトするとき | セッションを終える前に`signOut()` | `unregister(token)`。投げたら次の更新でもう一度試す |
+| サーバーがアカウントと端末を消したとき | `forgetAccount()` | 何も届かない |
 
-`signIn(account:)`を呼ぶまでは何も登録しない。`account`は端末に置いて比べるだけで、パッケージからは送らない。`send`はアプリがいまの人の資格で送る。
+`signIn(account:)`を呼ぶまでは何も登録しない。
 
-### 通知を押されたとき
+### 通知を開いたとき
 
-payloadは`aps`の横に2つの鍵を持つ。
+payloadは`aps`の横に`send_id`と`route`を持つ。先に`onOpen`がメインアクターで呼ばれ、次に`reportOpened`が`send_id`と一緒に呼ばれる。通知を消したときはどちらも呼ばれない。キーの名前は`PayloadKeys`で変えられる。
 
-```json
-{"aps": {"alert": {"title": "…", "body": "…"}}, "send_id": "snd_123", "route": "items/42"}
-```
+### テスト
 
-```swift
-let notifications = NotificationCenterDelegate(
-    foregroundPresentation: [.banner, .list, .sound],
-    reportOpened: { sendId in try await api.reportOpened(sendId) },
-    onOpen: { open in router.pendingRoute = open.route }
-)
-UNUserNotificationCenter.current().delegate = notifications   // centerは弱参照で持つので、参照を保持する
-```
+システムに触れるのは`NotificationPermission`・`RemoteNotificationRegistering`・`RegistrationStore`の3つだけ。この3つのフェイクと、タイムゾーンと言語を決めた`context:`を渡せば、全部の流れがシミュレーターなしの`swift test`で動く。`InMemoryRegistrationStore`はプロセスが終わると何も残さない。
 
-先に`onOpen`がメインアクターで呼ばれ、次に`send_id`で`reportOpened`が呼ばれる。通知を消しただけなら、どちらも呼ばれない。通知を押してアプリが起動したときは、まだ画面が無いことがある。`onOpen`の中で画面を動かさず、画面が表示されたときに読む場所へrouteを置く。鍵の名前は`PayloadKeys`で変えられる。
-
-### SwiftUIのアプリにつなぐ
+## はじめに
 
 ```swift
 import RemoteNotifications
@@ -117,11 +64,11 @@ final class Router {
 final class AppDelegate: NSObject, UIApplicationDelegate {
     let router = Router()
     let registration = NotificationRegistration(
-        send: { try await API.shared.registerDevice($0) },
-        unregister: { try await API.shared.unregisterDevice(token: $0) }
+        send: { registration in print("register", registration) },  // send it to your server
+        unregister: { token in print("unregister", token) }
     )
     lazy var notifications = NotificationCenterDelegate(
-        reportOpened: { try await API.shared.reportOpened($0) },
+        reportOpened: { sendId in print("opened", sendId) },
         onOpen: { [router] open in router.pendingRoute = open.route }
     )
 
@@ -129,7 +76,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // returnする前に設定する。遅れると、アプリを起動した通知のタップが届かない
+        // Before returning, or the tap that launched the app is lost.
         UNUserNotificationCenter.current().delegate = notifications
         return true
     }
@@ -150,8 +97,11 @@ struct MyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(appDelegate.router)
+            Button("Allow notifications") {
+                Task { try await appDelegate.registration.requestAuthorization() }
+            }
+            .environment(appDelegate.router)
+            .task { await appDelegate.registration.signIn(account: "user-1") }  // your user id
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
             if phase == .active { Task { await appDelegate.registration.refresh() } }
@@ -160,41 +110,50 @@ struct MyApp: App {
 }
 ```
 
+### appgrowstackにつなぐ
+
+このパッケージはどのサーバーとも単体で動く。appgrowstackを使うアプリは、ここでサーバーをつながない。[swift-appgrowstack](https://github.com/appgrowstack/swift-appgrowstack)の対応するtrait（SwiftPMのtraits）を有効にすると、このパッケージがappgrowstackにつながる。
+
 ### Firebaseを使うアプリ
 
-Firebaseは既定でアプリデリゲートを差し替える。そのままだと`application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`が呼ばれない。Info.plistに次を足す。
+Firebaseは標準でアプリのデリゲートをswizzleする。そのままだと`application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`が呼ばれない。Info.plistに次を足す。
 
 ```xml
 <key>FirebaseAppDelegateProxyEnabled</key>
 <false/>
 ```
 
-### テスト
-
-システムに触るのは`NotificationPermission`・`RemoteNotificationRegistering`・`RegistrationStore`の3つだけ。この3つの偽物と、固定のタイムゾーンと言語を返す`context:`を渡せば、シミュレーター無しで`swift test`で流れ全体を試せる。
-
 ## ドキュメント
 
-**[APIドキュメント](Sources/RemoteNotifications/Documentation.docc)**
+- [APIのドキュメント（DocCのカタログ）](Sources/RemoteNotifications/Documentation.docc/RemoteNotifications.md)
+- [変更履歴](CHANGELOG.md)
 
-## 動作環境
+## 入れ方
 
-- iOS 17.0+ / macOS 14.0+
-- Swift 6.0+
-- アプリのターゲットにPush Notificationsのcapability
-
-## インストール
-
-`Package.swift`に追加する。
+`Package.swift`に足す。
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/no-problem-dev/swift-remote-notifications.git", .upToNextMinor(from: "0.2.0"))
+    .package(url: "https://github.com/appgrowstack/swift-app-notifications.git", .upToNextMinor(from: "0.2.1"))
+],
+targets: [
+    .target(
+        name: "MyApp",
+        dependencies: [
+            .product(name: "RemoteNotifications", package: "swift-app-notifications")
+        ]
+    )
 ]
 ```
 
-Xcodeでは`File > Add Package Dependencies...`で`https://github.com/no-problem-dev/swift-remote-notifications`を入力する。
+Xcodeなら`File > Add Package Dependencies...`で`https://github.com/appgrowstack/swift-app-notifications.git`を入れる。
+
+## 動く環境
+
+- iOS 17.0以上・macOS 14.0以上
+- Swift 6.0以上
+- アプリのターゲットにPush NotificationsのCapability
 
 ## ライセンス
 
-[MIT](./LICENSE)
+MIT。[LICENSE](LICENSE)を見る。
