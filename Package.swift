@@ -6,7 +6,7 @@ import PackageDescription
 /// **It knows no server.** Where a registration is sent and where an opened notification is
 /// reported are closures the app passes in, so the same package serves any backend.
 let package = Package(
-    name: "swift-remote-notifications",
+    name: "swift-app-notifications",
     platforms: [
         .iOS(.v17),
         .macOS(.v14)

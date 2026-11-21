@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The package `name` in `Package.swift` is now `swift-app-notifications`, the same as the repository. Apps already refer to it as `package: "swift-app-notifications"` (SwiftPM takes the identity from the URL); only the manifest name was left over from before the rename.
+
 ## [0.2.1] - 2026-11-08
 
 ### Changed
