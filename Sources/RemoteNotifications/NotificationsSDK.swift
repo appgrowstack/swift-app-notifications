@@ -4,5 +4,5 @@ public enum NotificationsSDK {
     /// The package name (`swift-app-notifications`).
     public static let name = "swift-app-notifications"
     /// The released version: the newest `## [x.y.z]` section of the CHANGELOG (a test checks it).
-    public static let version = "0.2.2"
+    public static let version = "0.3.0"
 }
