@@ -10,6 +10,9 @@ the server left to the app.
 
 English | [日本語](./README.ja.md)
 
+> Developed in a private monorepo and copied here one way. Issues are welcome; pull requests are
+> not accepted.
+
 ## Overview
 
 The package never learns a URL. Where a registration goes and where an opened notification is
