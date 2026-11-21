@@ -45,9 +45,11 @@ Until `signIn(account:)` is called, nothing is registered.
 
 The payload carries `send_id` and `route` beside `aps`. `onOpen` runs first, on the main actor, then `reportOpened` with the `send_id`. A dismissal is neither. The key names can be changed with `PayloadKeys`.
 
+When `reportOpened` throws, the `send_id` is kept on the device (`pendingOpens`, `UserDefaults` by default, at most 20) and reported again when the app becomes active and after the next report that succeeds. Throw only for what is worth sending again (no connection, 429, 5xx); return for an answer that will not change. `retryPendingOpens()` sends the queue now.
+
 ### Testing
 
-The system is reached only through `NotificationPermission`, `RemoteNotificationRegistering` and `RegistrationStore`. Pass fakes of the three, and `context:` for a fixed time zone and language, and the whole flow runs under `swift test` without a simulator. `InMemoryRegistrationStore` keeps nothing past the process.
+The system is reached only through `NotificationPermission`, `RemoteNotificationRegistering` and `RegistrationStore`. Pass fakes of the three, and `context:` for a fixed time zone and language, and the whole flow runs under `swift test` without a simulator. `InMemoryRegistrationStore` and `InMemoryPendingOpenStore` keep nothing past the process.
 
 ## Quick Start
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An opened delivery whose report failed was lost. `NotificationCenterDelegate` now keeps the `send_id` when `reportOpened` throws (on the device, at most `pendingLimit`, 20 by default, no duplicates, oldest dropped first) and reports it again when the app becomes active, after the next report that succeeds, and from `retryPendingOpens()`. It leaves the queue only when `reportOpened` returns.
+
+### Added
+
+- `PendingOpenStore`, with `UserDefaultsPendingOpenStore` (the default, under `RemoteNotifications.pendingOpens`) and `InMemoryPendingOpenStore` for tests. `NotificationCenterDelegate(pendingOpens:pendingLimit:)`, `pendingSendIds` and `retryPendingOpens()`.
+
 ## [0.2.2] - 2026-11-21
 
 ### Changed

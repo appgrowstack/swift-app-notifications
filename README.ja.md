@@ -45,9 +45,11 @@ APNsのトークンはアプリのインストールに付く。サインイン�
 
 payloadは`aps`の横に`send_id`と`route`を持つ。先に`onOpen`がメインアクターで呼ばれ、次に`reportOpened`が`send_id`と一緒に呼ばれる。通知を消したときはどちらも呼ばれない。キーの名前は`PayloadKeys`で変えられる。
 
+`reportOpened`が投げたときは、`send_id`を端末に残し（`pendingOpens`。既定は`UserDefaults`で20件まで）、アプリが前面に来たときと、次に知らせられたときに送り直す。投げるのは送り直す意味がある失敗（つながらない・429・5xx）だけにし、何度送っても変わらない答えは投げずに返す。`retryPendingOpens()`を呼ぶとその場で送る。
+
 ### テスト
 
-システムに触れるのは`NotificationPermission`・`RemoteNotificationRegistering`・`RegistrationStore`の3つだけ。この3つのフェイクと、タイムゾーンと言語を決めた`context:`を渡せば、全部の流れがシミュレーターなしの`swift test`で動く。`InMemoryRegistrationStore`はプロセスが終わると何も残さない。
+システムに触れるのは`NotificationPermission`・`RemoteNotificationRegistering`・`RegistrationStore`の3つだけ。この3つのフェイクと、タイムゾーンと言語を決めた`context:`を渡せば、全部の流れがシミュレーターなしの`swift test`で動く。`InMemoryRegistrationStore`と`InMemoryPendingOpenStore`はプロセスが終わると何も残さない。
 
 ## はじめに
 
